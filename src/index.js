@@ -4,12 +4,20 @@ const cors = require('cors');
 const axios = require('axios');
 const { testConnection } = require('./config/database');
 const authRoutes = require('./routes/auth');
+const geminiRoutes = require('./routes/gemini');
 const { optionalAuth } = require('./middleware/auth');
 
 const app = express();
 const port = process.env.PORT || 3000;
 const WEATHER_API_KEY = process.env.WEATHER_API_KEY;
 const OPENWEATHER_API_URL = 'https://api.openweathermap.org/data/2.5';
+
+// Kiểm tra API key
+if (!WEATHER_API_KEY) {
+    console.error('❌ WEATHER_API_KEY không được cấu hình trong file .env');
+    console.error('💡 Vui lòng thêm WEATHER_API_KEY vào file .env');
+    process.exit(1);
+}
 
 app.use(cors());
 app.use(express.json());
@@ -19,6 +27,9 @@ testConnection();
 
 // Auth routes
 app.use('/api/auth', authRoutes);
+
+// Gemini AI routes
+app.use('/api/gemini', geminiRoutes);
 
 // API endpoint để lấy thời tiết theo tọa độ
 app.get('/api/weather/coordinates', async (req, res) => {
@@ -31,19 +42,57 @@ app.get('/api/weather/coordinates', async (req, res) => {
             });
         }
 
+        // Validate tọa độ
+        const latNum = parseFloat(lat);
+        const lonNum = parseFloat(lon);
+        
+        if (isNaN(latNum) || isNaN(lonNum)) {
+            return res.status(400).json({ 
+                error: 'Tọa độ không hợp lệ' 
+            });
+        }
+
+        if (latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+            return res.status(400).json({ 
+                error: 'Tọa độ nằm ngoài phạm vi hợp lệ' 
+            });
+        }
+
         const response = await axios.get(`${OPENWEATHER_API_URL}/weather`, {
             params: {
-                lat,
-                lon,
+                lat: latNum,
+                lon: lonNum,
                 appid: WEATHER_API_KEY,
                 units: 'metric',
                 lang: 'vi'
-            }
+            },
+            timeout: 10000 // 10 giây timeout
         });
 
         res.json(response.data);
     } catch (error) {
         console.error('Lỗi khi lấy thời tiết theo tọa độ:', error.message);
+        
+        if (error.response) {
+            // Lỗi từ OpenWeather API
+            if (error.response.status === 401) {
+                return res.status(500).json({ 
+                    error: 'API key không hợp lệ' 
+                });
+            }
+            if (error.response.status === 429) {
+                return res.status(429).json({ 
+                    error: 'Quá nhiều yêu cầu, vui lòng thử lại sau' 
+                });
+            }
+        }
+        
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({ 
+                error: 'Yêu cầu hết thời gian chờ' 
+            });
+        }
+        
         res.status(500).json({ 
             error: 'Không thể lấy thông tin thời tiết' 
         });
@@ -61,23 +110,51 @@ app.get('/api/weather/city', async (req, res) => {
             });
         }
 
+        // Validate tên thành phố
+        if (typeof city !== 'string' || city.trim().length === 0) {
+            return res.status(400).json({ 
+                error: 'Tên thành phố không hợp lệ' 
+            });
+        }
+
         const response = await axios.get(`${OPENWEATHER_API_URL}/weather`, {
             params: {
-                q: city,
+                q: city.trim(),
                 appid: WEATHER_API_KEY,
                 units: 'metric',
                 lang: 'vi'
-            }
+            },
+            timeout: 10000
         });
 
         res.json(response.data);
     } catch (error) {
         console.error('Lỗi khi lấy thời tiết theo thành phố:', error.message);
-        if (error.response && error.response.status === 404) {
-            return res.status(404).json({ 
-                error: 'Không tìm thấy thành phố' 
+        
+        if (error.response) {
+            if (error.response.status === 404) {
+                return res.status(404).json({ 
+                    error: 'Không tìm thấy thành phố' 
+                });
+            }
+            if (error.response.status === 401) {
+                return res.status(500).json({ 
+                    error: 'API key không hợp lệ' 
+                });
+            }
+            if (error.response.status === 429) {
+                return res.status(429).json({ 
+                    error: 'Quá nhiều yêu cầu, vui lòng thử lại sau' 
+                });
+            }
+        }
+        
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({ 
+                error: 'Yêu cầu hết thời gian chờ' 
             });
         }
+        
         res.status(500).json({ 
             error: 'Không thể lấy thông tin thời tiết' 
         });
@@ -96,10 +173,32 @@ app.get('/api/forecast', async (req, res) => {
         };
 
         if (lat && lon) {
-            params.lat = lat;
-            params.lon = lon;
+            // Validate tọa độ
+            const latNum = parseFloat(lat);
+            const lonNum = parseFloat(lon);
+            
+            if (isNaN(latNum) || isNaN(lonNum)) {
+                return res.status(400).json({ 
+                    error: 'Tọa độ không hợp lệ' 
+                });
+            }
+
+            if (latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+                return res.status(400).json({ 
+                    error: 'Tọa độ nằm ngoài phạm vi hợp lệ' 
+                });
+            }
+
+            params.lat = latNum;
+            params.lon = lonNum;
         } else if (city) {
-            params.q = city;
+            // Validate tên thành phố
+            if (typeof city !== 'string' || city.trim().length === 0) {
+                return res.status(400).json({ 
+                    error: 'Tên thành phố không hợp lệ' 
+                });
+            }
+            params.q = city.trim();
         } else {
             return res.status(400).json({ 
                 error: 'Cần cung cấp tọa độ (lat, lon) hoặc tên thành phố' 
@@ -107,12 +206,38 @@ app.get('/api/forecast', async (req, res) => {
         }
 
         const response = await axios.get(`${OPENWEATHER_API_URL}/forecast`, {
-            params
+            params,
+            timeout: 10000
         });
 
         res.json(response.data);
     } catch (error) {
         console.error('Lỗi khi lấy dự báo thời tiết:', error.message);
+        
+        if (error.response) {
+            if (error.response.status === 404) {
+                return res.status(404).json({ 
+                    error: 'Không tìm thấy địa điểm' 
+                });
+            }
+            if (error.response.status === 401) {
+                return res.status(500).json({ 
+                    error: 'API key không hợp lệ' 
+                });
+            }
+            if (error.response.status === 429) {
+                return res.status(429).json({ 
+                    error: 'Quá nhiều yêu cầu, vui lòng thử lại sau' 
+                });
+            }
+        }
+        
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({ 
+                error: 'Yêu cầu hết thời gian chờ' 
+            });
+        }
+        
         res.status(500).json({ 
             error: 'Không thể lấy dự báo thời tiết' 
         });
@@ -130,17 +255,45 @@ app.get('/api/search', async (req, res) => {
             });
         }
 
+        // Validate từ khóa tìm kiếm
+        if (typeof q !== 'string' || q.trim().length === 0) {
+            return res.status(400).json({ 
+                error: 'Từ khóa tìm kiếm không hợp lệ' 
+            });
+        }
+
         const response = await axios.get('http://api.openweathermap.org/geo/1.0/direct', {
             params: {
-                q,
+                q: q.trim(),
                 limit: 5,
                 appid: WEATHER_API_KEY
-            }
+            },
+            timeout: 10000
         });
 
         res.json(response.data);
     } catch (error) {
         console.error('Lỗi khi tìm kiếm thành phố:', error.message);
+        
+        if (error.response) {
+            if (error.response.status === 401) {
+                return res.status(500).json({ 
+                    error: 'API key không hợp lệ' 
+                });
+            }
+            if (error.response.status === 429) {
+                return res.status(429).json({ 
+                    error: 'Quá nhiều yêu cầu, vui lòng thử lại sau' 
+                });
+            }
+        }
+        
+        if (error.code === 'ECONNABORTED') {
+            return res.status(408).json({ 
+                error: 'Yêu cầu hết thời gian chờ' 
+            });
+        }
+        
         res.status(500).json({ 
             error: 'Không thể tìm kiếm thành phố' 
         });

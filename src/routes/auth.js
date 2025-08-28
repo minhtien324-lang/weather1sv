@@ -24,9 +24,28 @@ router.post('/register', registerValidation, handleValidationErrors, async (req,
         );
 
         if (existingUsers.length > 0) {
-            return res.status(400).json({
-                error: 'Tên đăng nhập hoặc email đã tồn tại'
-            });
+            // Kiểm tra cụ thể username hay email đã tồn tại
+            const [existingUsername] = await pool.execute(
+                'SELECT id FROM users WHERE username = ?',
+                [username]
+            );
+            
+            const [existingEmail] = await pool.execute(
+                'SELECT id FROM users WHERE email = ?',
+                [email]
+            );
+
+            if (existingUsername.length > 0) {
+                return res.status(400).json({
+                    error: 'Tên đăng nhập đã tồn tại'
+                });
+            }
+
+            if (existingEmail.length > 0) {
+                return res.status(400).json({
+                    error: 'Email đã tồn tại'
+                });
+            }
         }
 
         // Hash password
