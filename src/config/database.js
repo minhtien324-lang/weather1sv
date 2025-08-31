@@ -9,21 +9,35 @@ const dbConfig = {
     port: process.env.DB_PORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    acquireTimeout: 60000,
+    timeout: 60000,
+    reconnect: true
 };
 
 // Tạo connection pool
 const pool = mysql.createPool(dbConfig);
 
-// Test kết nối
-const testConnection = async () => {
-    try {
-        const connection = await pool.getConnection();
-        console.log('✅ Kết nối database thành công!');
-        connection.release();
-    } catch (error) {
-        console.error('❌ Lỗi kết nối database:', error.message);
-        process.exit(1);
+// Test kết nối với retry logic
+const testConnection = async (retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+        try {
+            const connection = await pool.getConnection();
+            console.log('✅ Kết nối database thành công!');
+            connection.release();
+            return true;
+        } catch (error) {
+            console.error(`❌ Lỗi kết nối database (lần thử ${i + 1}/${retries}):`, error.message);
+            
+            if (i === retries - 1) {
+                console.error('❌ Không thể kết nối database sau nhiều lần thử. Vui lòng kiểm tra cấu hình.');
+                console.error('💡 Đảm bảo MySQL đang chạy và thông tin kết nối trong .env file là chính xác.');
+                process.exit(1);
+            }
+            
+            // Chờ 2 giây trước khi thử lại
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
     }
 };
 
