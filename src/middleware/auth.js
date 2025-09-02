@@ -19,7 +19,7 @@ const authenticateToken = async (req, res, next) => {
         
         // Kiểm tra user có tồn tại trong database không
         const [users] = await pool.execute(
-            'SELECT id, username, email, full_name, is_active FROM users WHERE id = ?',
+            'SELECT id, username, email, full_name, role, is_active FROM users WHERE id = ?',
             [decoded.userId]
         );
 
@@ -58,7 +58,7 @@ const optionalAuth = async (req, res, next) => {
     try {
         const decoded = jwt.verify(token, JWT_SECRET);
         const [users] = await pool.execute(
-            'SELECT id, username, email, full_name FROM users WHERE id = ? AND is_active = 1',
+            'SELECT id, username, email, full_name, role FROM users WHERE id = ? AND is_active = 1',
             [decoded.userId]
         );
 

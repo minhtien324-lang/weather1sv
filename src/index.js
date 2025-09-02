@@ -2,9 +2,12 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const path = require('path');
+const fs = require('fs');
 const { testConnection } = require('./config/database');
 const authRoutes = require('./routes/auth');
 const geminiRoutes = require('./routes/gemini');
+const blogRoutes = require('./routes/blog');
 const { optionalAuth } = require('./middleware/auth');
 
 const app = express();
@@ -22,6 +25,13 @@ if (!WEATHER_API_KEY) {
 app.use(cors());
 app.use(express.json());
 
+// Static serve for uploads
+const uploadsDir = path.join(__dirname, '..', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
 // Test kết nối database khi khởi động
 testConnection();
 
@@ -30,6 +40,9 @@ app.use('/api/auth', authRoutes);
 
 // Gemini AI routes
 app.use('/api/gemini', geminiRoutes);
+
+// Blog routes
+app.use('/api/blog', blogRoutes);
 
 // API endpoint để lấy thời tiết theo tọa độ
 app.get('/api/weather/coordinates', async (req, res) => {
