@@ -71,7 +71,8 @@ router.post('/register', registerValidation, handleValidationErrors, async (req,
                 id: result.insertId,
                 username,
                 email,
-                full_name: full_name || null
+                full_name: full_name || null,
+                role: 'user'
             },
             token
         });
@@ -91,7 +92,7 @@ router.post('/login', loginValidation, handleValidationErrors, async (req, res) 
 
         // Tìm user theo username hoặc email
         const [users] = await pool.execute(
-            'SELECT id, username, email, password_hash, full_name, is_active FROM users WHERE username = ? OR email = ?',
+            'SELECT id, username, email, password_hash, full_name, role, is_active FROM users WHERE username = ? OR email = ?',
             [username, username]
         );
 
@@ -136,7 +137,8 @@ router.post('/login', loginValidation, handleValidationErrors, async (req, res) 
                 id: user.id,
                 username: user.username,
                 email: user.email,
-                full_name: user.full_name
+                full_name: user.full_name,
+                role: user.role
             },
             token
         });
@@ -157,7 +159,8 @@ router.get('/me', authenticateToken, async (req, res) => {
                 id: req.user.id,
                 username: req.user.username,
                 email: req.user.email,
-                full_name: req.user.full_name
+                full_name: req.user.full_name,
+                role: req.user.role
             }
         });
     } catch (error) {

@@ -33,6 +33,53 @@ const upload = multer({
 // Helpers
 const isAdmin = (req) => req.user && req.user.role === 'admin';
 
+// List comments for a post (public)
+router.get('/:id/comments', async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const [rows] = await pool.execute(
+            `SELECT c.id, c.content, c.created_at, u.username AS author_username, u.full_name AS author_name
+             FROM comments c JOIN users u ON u.id = c.author_id
+             WHERE c.post_id = ?
+             ORDER BY c.created_at ASC`,
+            [postId]
+        );
+        res.json({ items: rows, total: rows.length });
+    } catch (error) {
+        console.error('Lấy bình luận lỗi:', error.message);
+        res.status(500).json({ error: 'Không thể lấy bình luận' });
+    }
+});
+
+// Add comment (auth required)
+router.post('/:id/comments', authenticateToken, async (req, res) => {
+    try {
+        const postId = req.params.id;
+        const { content } = req.body;
+        if (!content || !content.trim()) {
+            return res.status(400).json({ error: 'Nội dung bình luận không được để trống' });
+        }
+        // Ensure post exists
+        const [posts] = await pool.execute('SELECT id FROM posts WHERE id = ?', [postId]);
+        if (posts.length === 0) return res.status(404).json({ error: 'Không tìm thấy bài viết' });
+
+        const [result] = await pool.execute(
+            'INSERT INTO comments (post_id, author_id, content) VALUES (?, ?, ?)',
+            [postId, req.user.id, content.trim()]
+        );
+
+        res.status(201).json({
+            id: result.insertId,
+            post_id: Number(postId),
+            author_id: req.user.id,
+            content: content.trim()
+        });
+    } catch (error) {
+        console.error('Thêm bình luận lỗi:', error.message);
+        res.status(500).json({ error: 'Không thể thêm bình luận' });
+    }
+});
+
 // Create post
 router.post('/', authenticateToken, upload.single('cover_image'), async (req, res) => {
     try {
@@ -68,8 +115,18 @@ router.get('/', async (req, res) => {
         const offset = (Number(page) - 1) * Number(limit);
 
         const [rows] = await pool.execute(
-            `SELECT p.id, p.title, SUBSTRING(p.content, 1, 300) AS excerpt, p.cover_image, p.status, p.created_at,
-                    u.username AS author_username, u.full_name AS author_name
+            `SELECT 
+                p.id,
+                p.title,
+                SUBSTRING(p.content, 1, 300) AS excerpt,
+                p.cover_image,
+                p.status,
+                p.created_at,
+                u.username AS author_username,
+                u.full_name AS author_name,
+                (
+                    SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id
+                ) AS comment_count
              FROM posts p
              JOIN users u ON u.id = p.author_id
              WHERE p.status = 'published'
@@ -95,7 +152,13 @@ router.get('/admin', authenticateToken, async (req, res) => {
         if (!isAdmin(req)) return res.status(403).json({ error: 'Chỉ admin được phép' });
 
         const [rows] = await pool.execute(
-            `SELECT p.*, u.username AS author_username, u.full_name AS author_name
+            `SELECT 
+                p.*,
+                u.username AS author_username,
+                u.full_name AS author_name,
+                (
+                    SELECT COUNT(*) FROM comments c WHERE c.post_id = p.id
+                ) AS comment_count
              FROM posts p JOIN users u ON u.id = p.author_id
              ORDER BY p.created_at DESC`
         );
@@ -129,7 +192,11 @@ router.put('/:id', authenticateToken, upload.single('cover_image'), async (req, 
         const postId = req.params.id;
         const { title, content, status } = req.body;
 
-        const [rows] = await pool.execute('SELECT author_id, cover_image FROM posts WHERE id = ?', [postId]);
+        // Cần lấy đầy đủ các cột để dùng giá trị cũ khi field không được gửi lên
+        const [rows] = await pool.execute(
+            'SELECT author_id, title, content, status, cover_image FROM posts WHERE id = ?',
+            [postId]
+        );
         if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy bài viết' });
         const post = rows[0];
 
@@ -175,5 +242,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+
 
 
