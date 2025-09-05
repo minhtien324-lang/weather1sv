@@ -80,6 +80,56 @@ router.post('/:id/comments', authenticateToken, async (req, res) => {
     }
 });
 
+// Update comment (author or admin)
+router.put('/:id/comments/:commentId', authenticateToken, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+        const { content } = req.body;
+        if (!content || !content.trim()) {
+            return res.status(400).json({ error: 'Nội dung bình luận không được để trống' });
+        }
+
+        const [rows] = await pool.execute('SELECT author_id FROM comments WHERE id = ?', [commentId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy bình luận' });
+        const comment = rows[0];
+
+        if (!isAdmin(req) && comment.author_id !== req.user.id) {
+            return res.status(403).json({ error: 'Bạn không có quyền sửa bình luận này' });
+        }
+
+        await pool.execute(
+            'UPDATE comments SET content = ? WHERE id = ?',
+            [content.trim(), commentId]
+        );
+
+        res.json({ message: 'Cập nhật bình luận thành công' });
+    } catch (error) {
+        console.error('Cập nhật bình luận lỗi:', error.message);
+        res.status(500).json({ error: 'Không thể cập nhật bình luận' });
+    }
+});
+
+// Delete comment (author or admin)
+router.delete('/:id/comments/:commentId', authenticateToken, async (req, res) => {
+    try {
+        const { commentId } = req.params;
+
+        const [rows] = await pool.execute('SELECT author_id FROM comments WHERE id = ?', [commentId]);
+        if (rows.length === 0) return res.status(404).json({ error: 'Không tìm thấy bình luận' });
+        const comment = rows[0];
+
+        if (!isAdmin(req) && comment.author_id !== req.user.id) {
+            return res.status(403).json({ error: 'Bạn không có quyền xóa bình luận này' });
+        }
+
+        await pool.execute('DELETE FROM comments WHERE id = ?', [commentId]);
+        res.json({ message: 'Đã xóa bình luận' });
+    } catch (error) {
+        console.error('Xóa bình luận lỗi:', error.message);
+        res.status(500).json({ error: 'Không thể xóa bình luận' });
+    }
+});
+
 // Create post
 router.post('/', authenticateToken, upload.single('cover_image'), async (req, res) => {
     try {
